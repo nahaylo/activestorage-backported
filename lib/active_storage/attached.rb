@@ -8,10 +8,10 @@ module ActiveStorage
   # Abstract base class for the concrete ActiveStorage::Attached::One and ActiveStorage::Attached::Many
   # classes that both provide proxy access to the blob association for a record.
   class Attached
-    attr_reader :name, :record, :dependent
+    attr_reader :name, :record, :service, :dependent
 
-    def initialize(name, record, dependent:)
-      @name, @record, @dependent = name, record, dependent
+    def initialize(name, record, service: nil, dependent:)
+      @name, @record, @service, @dependent = name, record, service, dependent
     end
 
     private
@@ -23,7 +23,8 @@ module ActiveStorage
           ActiveStorage::Blob.create_after_upload! \
             io: attachable.open,
             filename: attachable.original_filename,
-            content_type: attachable.content_type
+            content_type: attachable.content_type,
+            service_name: service
         when Hash
           ActiveStorage::Blob.create_after_upload!(attachable)
         when String

@@ -11,11 +11,14 @@ module ActiveStorage
   class Service::S3Service < Service
     attr_reader :client, :bucket, :upload_options
 
-    def initialize(bucket:, upload: {}, **options)
+    def initialize(bucket:, upload: {}, public: false, **options)
       @client = Aws::S3::Resource.new(**options)
       @bucket = @client.bucket(bucket)
 
+      @public = public
+
       @upload_options = upload
+      @upload_options[:acl] = "public-read" if public?
     end
 
     def upload(key, io, checksum: nil, **)
@@ -66,18 +69,6 @@ module ActiveStorage
       end
     end
 
-    def url(key, expires_in:, filename:, disposition:, content_type:)
-      instrument :url, key: key do |payload|
-        generated_url = object_for(key).presigned_url :get, expires_in: expires_in.to_i,
-          response_content_disposition: content_disposition_with(type: disposition, filename: filename),
-          response_content_type: content_type
-
-        payload[:url] = generated_url
-
-        generated_url
-      end
-    end
-
     def url_for_direct_upload(key, expires_in:, content_type:, content_length:, checksum:)
       instrument :url, key: key do |payload|
         generated_url = object_for(key).presigned_url :put, expires_in: expires_in.to_i,
@@ -95,6 +86,16 @@ module ActiveStorage
     end
 
     private
+      def private_url(key, expires_in:, filename:, disposition:, content_type:, **)
+        object_for(key).presigned_url :get, expires_in: expires_in.to_i,
+          response_content_disposition: content_disposition_with(type: disposition, filename: filename),
+          response_content_type: content_type
+      end
+
+      def public_url(key, **)
+        object_for(key).public_url
+      end
+
       def object_for(key)
         bucket.object(key)
       end

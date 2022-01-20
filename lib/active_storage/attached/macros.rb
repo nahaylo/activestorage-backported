@@ -27,10 +27,12 @@ module ActiveStorage
     #
     # If the +:dependent+ option isn't set, the attachment will be purged
     # (i.e. destroyed) whenever the record is destroyed.
-    def has_one_attached(name, dependent: :purge_later)
+    def has_one_attached(name, dependent: :purge_later, service: nil)
+      validate_service_configuration(name, service)
+
       class_eval <<-CODE, __FILE__, __LINE__ + 1
         def #{name}
-          @active_storage_attached_#{name} ||= ActiveStorage::Attached::One.new("#{name}", self, dependent: #{dependent == :purge_later ? ":purge_later" : "false"})
+          @active_storage_attached_#{name} ||= ActiveStorage::Attached::One.new("#{name}", self, service: "#{service.nil? ? nil : service}", dependent: #{dependent == :purge_later ? ":purge_later" : "false"})
         end
 
         def #{name}=(attachable)
@@ -106,5 +108,14 @@ module ActiveStorage
         before_destroy { public_send(name).detach }
       end
     end
+
+    private
+      def validate_service_configuration(association_name, service)
+        if service.present?
+          ActiveStorage::Blob.services.fetch(service) do
+            raise ArgumentError, "Cannot configure service :#{service} for #{name}##{association_name}"
+          end
+        end
+      end
   end
 end

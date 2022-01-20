@@ -40,6 +40,7 @@ module ActiveStorage
   class Service
     extend ActiveSupport::Autoload
     autoload :Configurator
+    attr_accessor :name
 
     class_attribute :url_expires_in, default: 5.minutes
 
@@ -57,8 +58,10 @@ module ActiveStorage
       # Passes the configurator and all of the service's config as keyword args.
       #
       # See MirrorService for an example.
-      def build(configurator:, service: nil, **service_config) #:nodoc:
-        new(**service_config)
+      def build(configurator:, name:, service: nil, **service_config) #:nodoc:
+        new(**service_config).tap do |service_instance|
+          service_instance.name = name
+        end
       end
     end
 
@@ -99,11 +102,23 @@ module ActiveStorage
       raise NotImplementedError
     end
 
-    # Returns a signed, temporary URL for the file at the +key+. The URL will be valid for the amount
-    # of seconds specified in +expires_in+. You most also provide the +disposition+ (+:inline+ or +:attachment+),
-    # +filename+, and +content_type+ that you wish the file to be served with on request.
-    def url(key, expires_in:, disposition:, filename:, content_type:)
-      raise NotImplementedError
+    # Returns the URL for the file at the +key+. This returns a permanent URL for public files, and returns a
+    # short-lived URL for private files. For private files you can provide the +disposition+ (+:inline+ or +:attachment+),
+    # +filename+, and +content_type+ that you wish the file to be served with on request. Additionally, you can also provide
+    # the amount of seconds the URL will be valid for, specified in +expires_in+.
+    def url(key, **options)
+      instrument :url, key: key do |payload|
+        generated_url =
+          if public?
+            public_url(key, **options)
+          else
+            private_url(key, **options)
+          end
+
+        payload[:url] = generated_url
+
+        generated_url
+      end
     end
 
     # Returns a signed, temporary URL that a direct upload file can be PUT to on the +key+.
@@ -119,7 +134,19 @@ module ActiveStorage
       {}
     end
 
+    def public?
+      @public
+    end
+
     private
+      def private_url(key, expires_in:, filename:, disposition:, content_type:, **)
+        raise NotImplementedError
+      end
+
+      def public_url(key, **)
+        raise NotImplementedError
+      end
+
       def instrument(operation, payload = {}, &block)
         ActiveSupport::Notifications.instrument(
           "service_#{operation}.active_storage",
