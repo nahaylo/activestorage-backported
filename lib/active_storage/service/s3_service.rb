@@ -21,10 +21,10 @@ module ActiveStorage
       @upload_options[:acl] = "public-read" if public?
     end
 
-    def upload(key, io, checksum: nil, **)
+    def upload(key, io, checksum: nil, content_type:, **)
       instrument :upload, key: key, checksum: checksum do
         begin
-          object_for(key).put(upload_options.merge(body: io, content_md5: checksum))
+          object_for(key).put(upload_options.merge(body: io, content_md5: checksum, content_type: content_type))
         rescue Aws::S3::Errors::BadDigest
           raise ActiveStorage::IntegrityError
         end
