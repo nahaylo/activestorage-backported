@@ -26,7 +26,7 @@ module ActiveStorage
             content_type: attachable.content_type,
             service_name: service
         when Hash
-          ActiveStorage::Blob.create_after_upload!(attachable)
+          ActiveStorage::Blob.create_after_upload!(attachable.merge!(service_name: service))
         when String
           ActiveStorage::Blob.find_signed(attachable)
         else
