@@ -9,7 +9,8 @@ module ActiveStorage
   # Wraps the Amazon Simple Storage Service (S3) as an Active Storage service.
   # See ActiveStorage::Service for the generic API documentation that applies to all services.
   class Service::S3Service < Service
-    attr_reader :client, :bucket, :upload_options
+    attr_reader :client, :bucket
+    attr_reader :multipart_upload_threshold, :upload_options
 
     def initialize(bucket:, upload: {}, public: false, **options)
       @client = Aws::S3::Resource.new(**options)
@@ -17,16 +18,17 @@ module ActiveStorage
 
       @public = public
 
+      @multipart_upload_threshold = 10.gigabytes
       @upload_options = upload
       @upload_options[:acl] = "public-read" if public?
     end
 
     def upload(key, io, checksum: nil, content_type:, **)
       instrument :upload, key: key, checksum: checksum do
-        begin
-          object_for(key).put(upload_options.merge(body: io, content_md5: checksum, content_type: content_type))
-        rescue Aws::S3::Errors::BadDigest
-          raise ActiveStorage::IntegrityError
+        if io.size < multipart_upload_threshold
+          upload_with_single_part key, io, checksum: checksum, content_type: content_type
+        else
+          upload_with_multipart key, io, content_type: content_type
         end
       end
     end
@@ -86,6 +88,23 @@ module ActiveStorage
     end
 
     private
+      MAXIMUM_UPLOAD_PARTS_COUNT = 10000
+      MINIMUM_UPLOAD_PART_SIZE   = 5.megabytes
+
+      def upload_with_single_part(key, io, checksum: nil, content_type: nil)
+        object_for(key).put(body: io, content_md5: checksum, content_type: content_type, **upload_options)
+      rescue Aws::S3::Errors::BadDigest
+        raise ActiveStorage::IntegrityError
+      end
+
+      def upload_with_multipart(key, io, content_type: nil)
+        part_size = [ io.size.fdiv(MAXIMUM_UPLOAD_PARTS_COUNT).ceil, MINIMUM_UPLOAD_PART_SIZE ].max
+
+        object_for(key).upload_stream(content_type: content_type, part_size: part_size, **upload_options) do |out|
+          IO.copy_stream(io, out)
+        end
+      end
+
       def private_url(key, expires_in:, filename:, disposition:, content_type:, **)
         object_for(key).presigned_url :get, expires_in: expires_in.to_i,
           response_content_disposition: content_disposition_with(type: disposition, filename: filename),
